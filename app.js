@@ -13,7 +13,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const centerSliderY = document.getElementById('center-slider-y');
     const centerValueY = document.getElementById('center-value-y');
     const centerYGroup = document.getElementById('center-y-group');
+    const centerSliderZ = document.getElementById('center-slider-z');
+    const centerValueZ = document.getElementById('center-value-z');
+    const centerZGroup = document.getElementById('center-z-group');
     const multiHint = document.getElementById('multi-hint');
+    const multiHintText = document.getElementById('multi-hint-text');
     const playButton = document.getElementById('play-button');
     const resetButton = document.getElementById('reset-button');
     const formulaDisplay = document.getElementById('formula-display');
@@ -36,20 +40,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const DRAW_SPEED_IDLE = 4;
     const MAX_TERMS = {
         1: 100,
-        2: 12
+        2: 12,
+        3: 6
     };
 
     const CUSTOM_LABELS = {
         1: 'Eigene Funktion (z.B. x^2, sin(x)*x)',
-        2: 'Eigene Funktion (z.B. sin(x) + cos(y), x*y)'
+        2: 'Eigene Funktion (z.B. sin(x) + cos(y), x*y)',
+        3: 'Eigene Funktion (z.B. sin(x) + y*z, x*y*z)'
     };
     const CUSTOM_PLACEHOLDERS = {
         1: 'z.B. x^2 + 2*x',
-        2: 'z.B. sin(x)*y + y^2'
+        2: 'z.B. sin(x)*y + y^2',
+        3: 'z.B. x*y + z^2'
     };
 
-    const customFunctions = { 1: null, 2: null };
-    const customFunctionStrings = { 1: '', 2: '' };
+    const customFunctions = { 1: null, 2: null, 3: null };
+    const customFunctionStrings = { 1: '', 2: '', 3: '' };
 
     function invalidateFormula() {
         needsFormulaUpdate = true;
@@ -58,11 +65,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function parseCustomFunction(expr, dimensions) {
         try {
             expr = expr.replace(/\^/g, '**').replace(/(\d)([a-z])/gi, '$1*$2');
-            const args = dimensions === 1 ? 'x' : 'x, y';
+            const argNames = ['x', 'y', 'z', 'w'];
+            const args = argNames.slice(0, dimensions).join(', ');
             const func = new Function(args, `
                 with (Math) { return ${expr}; }
             `);
-            const testValue = dimensions === 1 ? func(0) : func(0, 0);
+            const zeros = new Array(dimensions).fill(0);
+            const testValue = func(...zeros);
             if (!isFinite(testValue)) throw new Error();
             return func;
         } catch (e) {
@@ -142,6 +151,30 @@ document.addEventListener('DOMContentLoaded', function() {
             func: ([x, y]) => x * y,
             yRange: [-25, 25]
         },
+        sinxyz: {
+            name: 'sin(x) + cos(y) + sin(z)',
+            dimensions: 3,
+            func: ([x, y, z]) => Math.sin(x) + Math.cos(y) + Math.sin(z),
+            yRange: [-4, 4]
+        },
+        exp3d: {
+            name: 'e^{(x+y+z)/3}',
+            dimensions: 3,
+            func: ([x, y, z]) => Math.exp((x + y + z) / 3),
+            yRange: [-2, 20]
+        },
+        sphere: {
+            name: 'x² + y² + z²',
+            dimensions: 3,
+            func: ([x, y, z]) => x * x + y * y + z * z,
+            yRange: [-5, 120]
+        },
+        mixprod: {
+            name: 'xy + yz + zx',
+            dimensions: 3,
+            func: ([x, y, z]) => x * y + y * z + z * x,
+            yRange: [-80, 80]
+        },
         custom: {
             name: 'f(x)',
             dimensions: 1,
@@ -164,6 +197,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 return fn ? fn(x, y) : 0;
             },
             getSignature: () => `custom2d:${customFunctionStrings[2] || 'empty'}`,
+            yRange: [-3, 3]
+        },
+        custom3d: {
+            name: 'f(x,y,z)',
+            dimensions: 3,
+            func: ([x, y, z]) => {
+                const fn = customFunctions[3];
+                return fn ? fn(x, y, z) : 0;
+            },
+            getSignature: () => `custom3d:${customFunctionStrings[3] || 'empty'}`,
             yRange: [-3, 3]
         }
     };
@@ -192,6 +235,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (functionSelect.value === 'custom2d') {
             return customFunctionStrings[2] || 'f(x,y)';
         }
+        if (functionSelect.value === 'custom3d') {
+            return customFunctionStrings[3] || 'f(x,y,z)';
+        }
         return def.name;
     }
 
@@ -203,17 +249,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function getCenterPoint() {
-        if (getCurrentDimensions() === 1) {
-            return [parseFloat(centerSlider.value)];
-        }
-        return [
-            parseFloat(centerSlider.value),
-            parseFloat(centerSliderY.value)
-        ];
+        const dims = getCurrentDimensions();
+        const point = [parseFloat(centerSlider.value)];
+        if (dims >= 2) point.push(parseFloat(centerSliderY.value));
+        if (dims >= 3) point.push(parseFloat(centerSliderZ.value));
+        return point;
     }
 
     function buildPointForX(x, centerPoint) {
-        if (getCurrentDimensions() === 1) return [x];
         const point = centerPoint.slice();
         point[0] = x;
         return point;
@@ -366,10 +409,22 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateDimensionUI(dimensions) {
-        const isMulti = dimensions > 1;
-        centerYGroup.style.display = isMulti ? 'flex' : 'none';
-        multiHint.style.display = isMulti ? 'flex' : 'none';
-        centerSliderY.disabled = !isMulti;
+        const showY = dimensions >= 2;
+        const showZ = dimensions >= 3;
+        centerYGroup.style.display = showY ? 'flex' : 'none';
+        centerSliderY.disabled = !showY;
+        centerZGroup.style.display = showZ ? 'flex' : 'none';
+        centerSliderZ.disabled = !showZ;
+        if (dimensions > 1) {
+            multiHint.style.display = 'flex';
+            if (dimensions === 2) {
+                multiHintText.textContent = 'Bei 2D-Funktionen wird der Schnitt entlang der x-Achse bei festem y = a_y angezeigt.';
+            } else {
+                multiHintText.textContent = 'Bei 3D-Funktionen wird der Schnitt entlang der x-Achse bei festem y = a_y und z = a_z angezeigt.';
+            }
+        } else {
+            multiHint.style.display = 'none';
+        }
         adjustTermsSlider(dimensions);
     }
 
@@ -510,9 +565,14 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.font = 'bold 13px sans-serif';
         ctx.textAlign = 'center';
         ctx.shadowBlur = 10;
-        const label = def.dimensions === 1
-            ? `a = ${centerPoint[0].toFixed(1)}`
-            : `a = (${centerPoint[0].toFixed(1)}, ${centerPoint[1].toFixed(1)})`;
+        let label;
+        if (def.dimensions === 1) {
+            label = `a = ${centerPoint[0].toFixed(1)}`;
+        } else if (def.dimensions === 2) {
+            label = `a = (${centerPoint[0].toFixed(1)}, ${centerPoint[1].toFixed(1)})`;
+        } else {
+            label = `a = (${centerPoint[0].toFixed(1)}, ${centerPoint[1].toFixed(1)}, ${centerPoint[2].toFixed(1)})`;
+        }
         ctx.fillText(label, sx, sy - 25);
         ctx.shadowBlur = 0;
     }
@@ -741,14 +801,12 @@ document.addEventListener('DOMContentLoaded', function() {
     function handleFunctionChange() {
         const def = getCurrentFunctionDef();
         const dimensions = getCurrentDimensions();
-        const isCustom = functionSelect.value === 'custom' || functionSelect.value === 'custom2d';
+        const isCustom = ['custom', 'custom2d', 'custom3d'].includes(functionSelect.value);
         customFunctionGroup.style.display = isCustom ? 'flex' : 'none';
         if (isCustom) {
             updateCustomInputMeta(dimensions);
-            customError.classList.remove('show');
-        } else {
-            customError.classList.remove('show');
         }
+        customError.classList.remove('show');
         isPlaying = false;
         playButton.textContent = '▶ Abspielen';
         updateDimensionUI(dimensions);
@@ -792,6 +850,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const max = parseInt(termsSlider.max, 10);
         let value = parseInt(e.target.value, 10);
         if (value > max) value = max;
+        termsSlider.value = value;
         currentTerms = targetTerms = value;
         termsValue.textContent = value;
         isPlaying = false;
@@ -810,6 +869,14 @@ document.addEventListener('DOMContentLoaded', function() {
     centerSliderY.addEventListener('input', (e) => {
         centerValueY.textContent = parseFloat(e.target.value).toFixed(1);
         if (getCurrentDimensions() === 1) return;
+        clearDerivativeCaches();
+        drawProgress = 0;
+        invalidateFormula();
+    });
+
+    centerSliderZ.addEventListener('input', (e) => {
+        centerValueZ.textContent = parseFloat(e.target.value).toFixed(1);
+        if (getCurrentDimensions() < 3) return;
         clearDerivativeCaches();
         drawProgress = 0;
         invalidateFormula();
@@ -843,6 +910,8 @@ document.addEventListener('DOMContentLoaded', function() {
         centerValue.textContent = '0.0';
         centerSliderY.value = 0;
         centerValueY.textContent = '0.0';
+        centerSliderZ.value = 0;
+        centerValueZ.textContent = '0.0';
         functionSelect.value = 'sin';
         handleFunctionChange();
         drawProgress = 1;
