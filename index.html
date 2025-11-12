@@ -12,13 +12,20 @@
         
         <div class="controls">
             <div class="control-group">
-                <label for="function-select">Funktion:</label>
+                <label for="function-select">Vordefinierte Funktion</label>
                 <select id="function-select">
                     <option value="sin">sin(x)</option>
                     <option value="cos">cos(x)</option>
                     <option value="exp">e^x</option>
                     <option value="ln">ln(1+x)</option>
+                    <option value="custom">Eigene Funktion</option>
                 </select>
+            </div>
+            
+            <div class="control-group" id="custom-function-group" style="display: none;">
+                <label for="custom-function">Eigene Funktion (z.B. x^2, sin(x)*x)</label>
+                <input type="text" id="custom-function" placeholder="z.B. x^2 + 2*x">
+                <span class="error-message" id="custom-error">Ungültige Funktion</span>
             </div>
             
             <div class="control-group">
