@@ -28,6 +28,14 @@ document.addEventListener('DOMContentLoaded', function() {
     let drawProgress = 0;
     let lastFrameTime = null;
     let needsFormulaUpdate = true;
+    const viewState = {
+        yaw: -0.7,
+        pitch: 0.35,
+        distance: 900,
+        isDragging: false,
+        lastX: 0,
+        lastY: 0
+    };
 
     const PADDING = 60;
     const GRID_COLOR = 'rgba(120, 119, 198, 0.15)';
@@ -42,6 +50,16 @@ document.addEventListener('DOMContentLoaded', function() {
         1: 100,
         2: 12,
         3: 6
+    };
+    const SLIDER_RANGES = {
+        y: {
+            min: parseFloat(centerSliderY.min || '-5'),
+            max: parseFloat(centerSliderY.max || '5')
+        },
+        z: {
+            min: parseFloat(centerSliderZ.min || '-5'),
+            max: parseFloat(centerSliderZ.max || '5')
+        }
     };
 
     const CUSTOM_LABELS = {
@@ -76,6 +94,62 @@ document.addEventListener('DOMContentLoaded', function() {
             return func;
         } catch (e) {
             return null;
+        }
+    }
+
+    function drawFunction3D(func, xMin, xMax, yMin, yMax, color, lineWidth, dashed, progress, centerPoint, depthRange, dims, zeroHeight) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = color;
+        ctx.beginPath();
+        let started = false;
+        const steps = 500;
+        const maxStep = Math.floor(steps * progress);
+        const depthValue = centerPoint[1] || 0;
+        for (let i = 0; i <= maxStep; i++) {
+            const x = xMin + i * (xMax - xMin) / steps;
+            try {
+                const y = func(x);
+                if (!isFinite(y) || y < yMin - 3 || y > yMax + 3) continue;
+                const worldPoint = {
+                    x: toWorldX(x, xMin, xMax, dims.width),
+                    y: toWorldY(y, yMin, yMax, dims.height, zeroHeight),
+                    z: toWorldZ(depthValue, depthRange.min, depthRange.max, dims.depth)
+                };
+                const screen = projectPoint3D(worldPoint);
+                if (!started) {
+                    ctx.moveTo(screen.x, screen.y);
+                    started = true;
+                } else {
+                    ctx.lineTo(screen.x, screen.y);
+                }
+            } catch (e) { continue; }
+        }
+        if (dashed) ctx.setLineDash([8, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.shadowBlur = 0;
+        if (progress < 1 && started) {
+            const x = xMin + maxStep * (xMax - xMin) / steps;
+            try {
+                const y = func(x);
+                if (isFinite(y)) {
+                    const worldPoint = {
+                        x: toWorldX(x, xMin, xMax, dims.width),
+                        y: toWorldY(y, yMin, yMax, dims.height, zeroHeight),
+                        z: toWorldZ(depthValue, depthRange.min, depthRange.max, dims.depth)
+                    };
+                    const screen = projectPoint3D(worldPoint);
+                    ctx.fillStyle = color;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = color;
+                    ctx.beginPath();
+                    ctx.arc(screen.x, screen.y, 3 + Math.sin(Date.now() / 100), 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+            } catch (e) {}
         }
     }
 
@@ -442,7 +516,52 @@ document.addEventListener('DOMContentLoaded', function() {
         return canvas.height - PADDING - ((y - yMin) / (yMax - yMin)) * (canvas.height - 2 * PADDING);
     }
 
-    function drawGrid(xMin, xMax, yMin, yMax) {
+    function getWorldDimensions() {
+        const width = canvas.width - 2 * PADDING;
+        const depth = width * 0.7;
+        const height = canvas.height - 2 * PADDING;
+        return { width, depth, height };
+    }
+
+    function toWorldX(value, min, max, width) {
+        const t = (value - min) / (max - min || 1);
+        return (t - 0.5) * width;
+    }
+
+    function toWorldZ(value, min, max, depth) {
+        const t = (value - min) / (max - min || 1);
+        return (t - 0.5) * depth;
+    }
+
+    function toWorldY(value, min, max, height, zeroHeight) {
+        const t = (value - min) / (max - min || 1);
+        return t * height - zeroHeight;
+    }
+
+    function computeZeroHeight(min, max, height) {
+        return ((0 - min) / (max - min || 1)) * height;
+    }
+
+    function projectPoint3D(point) {
+        const cosYaw = Math.cos(viewState.yaw);
+        const sinYaw = Math.sin(viewState.yaw);
+        const cosPitch = Math.cos(viewState.pitch);
+        const sinPitch = Math.sin(viewState.pitch);
+        let x = point.x;
+        let y = point.y;
+        let z = point.z;
+        const rotatedX = x * cosYaw - z * sinYaw;
+        let rotatedZ = x * sinYaw + z * cosYaw;
+        const rotatedY = y * cosPitch - rotatedZ * sinPitch;
+        rotatedZ = y * sinPitch + rotatedZ * cosPitch + viewState.distance;
+        const perspective = viewState.distance / (viewState.distance + rotatedZ);
+        return {
+            x: canvas.width / 2 + rotatedX * perspective,
+            y: canvas.height - PADDING - rotatedY * perspective
+        };
+    }
+
+    function draw2DGrid(xMin, xMax, yMin, yMax) {
         ctx.strokeStyle = GRID_COLOR;
         ctx.lineWidth = 1;
         for (let x = Math.ceil(xMin); x <= Math.floor(xMax); x++) {
@@ -488,7 +607,123 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function drawFunction(func, xMin, xMax, yMin, yMax, color, lineWidth, dashed, progress) {
+    function draw3DCoordinateSystem(xMin, xMax, yMin, yMax, depthRange, dims, zeroHeight) {
+        const xSteps = 12;
+        const zSteps = 8;
+        const planeColor = ctx.createLinearGradient(0, canvas.height - PADDING, 0, PADDING);
+        planeColor.addColorStop(0, 'rgba(20, 20, 40, 0.5)');
+        planeColor.addColorStop(1, 'rgba(20, 20, 60, 0.2)');
+        const corners = [
+            projectPoint3D({
+                x: toWorldX(xMin, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(depthRange.min, depthRange.min, depthRange.max, dims.depth)
+            }),
+            projectPoint3D({
+                x: toWorldX(xMax, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(depthRange.min, depthRange.min, depthRange.max, dims.depth)
+            }),
+            projectPoint3D({
+                x: toWorldX(xMax, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(depthRange.max, depthRange.min, depthRange.max, dims.depth)
+            }),
+            projectPoint3D({
+                x: toWorldX(xMin, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(depthRange.max, depthRange.min, depthRange.max, dims.depth)
+            })
+        ];
+        ctx.fillStyle = planeColor;
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(120, 119, 198, 0.12)';
+        ctx.lineWidth = 1;
+        for (let xi = 0; xi <= xSteps; xi++) {
+            const t = xi / xSteps;
+            const xVal = xMin + t * (xMax - xMin);
+            const start = projectPoint3D({
+                x: toWorldX(xVal, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(depthRange.min, depthRange.min, depthRange.max, dims.depth)
+            });
+            const end = projectPoint3D({
+                x: toWorldX(xVal, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(depthRange.max, depthRange.min, depthRange.max, dims.depth)
+            });
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.stroke();
+        }
+        for (let zi = 0; zi <= zSteps; zi++) {
+            const t = zi / zSteps;
+            const zVal = depthRange.min + t * (depthRange.max - depthRange.min);
+            const start = projectPoint3D({
+                x: toWorldX(xMin, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(zVal, depthRange.min, depthRange.max, dims.depth)
+            });
+            const end = projectPoint3D({
+                x: toWorldX(xMax, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(zVal, depthRange.min, depthRange.max, dims.depth)
+            });
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.stroke();
+        }
+
+        function drawAxis(fromPoint, toPoint, label, color) {
+            const from = projectPoint3D(fromPoint);
+            const to = projectPoint3D(toPoint);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = color;
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = color;
+            ctx.font = '12px sans-serif';
+            ctx.fillText(label, to.x + 6, to.y - 6);
+        }
+
+        const originPoint = {
+            x: toWorldX(0, xMin, xMax, dims.width),
+            y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+            z: toWorldZ(0, depthRange.min, depthRange.max, dims.depth)
+        };
+        drawAxis(
+            { ...originPoint, x: toWorldX(xMin, xMin, xMax, dims.width) },
+            { ...originPoint, x: toWorldX(xMax, xMin, xMax, dims.width) },
+            'x',
+            'rgba(120, 119, 198, 0.8)'
+        );
+        drawAxis(
+            { ...originPoint, y: toWorldY(yMin, yMin, yMax, dims.height, zeroHeight) },
+            { ...originPoint, y: toWorldY(yMax, yMin, yMax, dims.height, zeroHeight) },
+            'f',
+            'rgba(120, 119, 198, 0.8)'
+        );
+        drawAxis(
+            { ...originPoint, z: toWorldZ(depthRange.min, depthRange.min, depthRange.max, dims.depth) },
+            { ...originPoint, z: toWorldZ(depthRange.max, depthRange.min, depthRange.max, dims.depth) },
+            'z',
+            'rgba(72, 149, 239, 0.9)'
+        );
+    }
+
+    function drawFunction2D(func, xMin, xMax, yMin, yMax, color, lineWidth, dashed, progress) {
         ctx.strokeStyle = color;
         ctx.lineWidth = lineWidth;
         ctx.shadowBlur = 15;
@@ -533,7 +768,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function drawExpansionPoint(centerPoint, xMin, xMax, yMin, yMax, def) {
+    function drawExpansionPoint2D(centerPoint, xMin, xMax, yMin, yMax, def) {
         const y = safeEvaluate(def, centerPoint);
         if (!isFinite(y)) return;
         const sx = toScreenX(centerPoint[0], xMin, xMax);
@@ -565,16 +800,52 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.font = 'bold 13px sans-serif';
         ctx.textAlign = 'center';
         ctx.shadowBlur = 10;
-        let label;
-        if (def.dimensions === 1) {
-            label = `a = ${centerPoint[0].toFixed(1)}`;
-        } else if (def.dimensions === 2) {
-            label = `a = (${centerPoint[0].toFixed(1)}, ${centerPoint[1].toFixed(1)})`;
-        } else {
-            label = `a = (${centerPoint[0].toFixed(1)}, ${centerPoint[1].toFixed(1)}, ${centerPoint[2].toFixed(1)})`;
-        }
+        const label = centerPoint.length === 1
+            ? `a = ${centerPoint[0].toFixed(1)}`
+            : `a = (${centerPoint.map(v => v.toFixed(1)).join(', ')})`;
         ctx.fillText(label, sx, sy - 25);
         ctx.shadowBlur = 0;
+    }
+
+    function drawExpansionPoint3D(centerPoint, xMin, xMax, yMin, yMax, def, depthRange, dims, zeroHeight) {
+        const y = safeEvaluate(def, centerPoint);
+        if (!isFinite(y)) return;
+        const worldPoint = {
+            x: toWorldX(centerPoint[0], xMin, xMax, dims.width),
+            y: toWorldY(y, yMin, yMax, dims.height, zeroHeight),
+            z: toWorldZ(centerPoint[1] || 0, depthRange.min, depthRange.max, dims.depth)
+        };
+        const screen = projectPoint3D(worldPoint);
+        const time = Date.now() / 1000;
+        for (let i = 0; i < 3; i++) {
+            const phase = (time + i * 0.3) % 1;
+            const radius = 10 + phase * 20;
+            const alpha = (1 - phase) * 0.3;
+            const grad = ctx.createRadialGradient(screen.x, screen.y, 0, screen.x, screen.y, radius);
+            grad.addColorStop(0, `rgba(255, 107, 157, ${alpha})`);
+            grad.addColorStop(1, 'rgba(255, 107, 157, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, radius, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+        ctx.fillStyle = POINT_COLOR;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = POINT_COLOR;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = POINT_COLOR;
+        ctx.font = 'bold 13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(
+            centerPoint.length === 2
+                ? `a = (${centerPoint[0].toFixed(1)}, ${centerPoint[1].toFixed(1)})`
+                : `a = (${centerPoint[0].toFixed(1)}, ${centerPoint[1].toFixed(1)}, ${centerPoint[2].toFixed(1)})`,
+            screen.x,
+            screen.y - 25
+        );
     }
 
     function drawLegend(def) {
@@ -613,35 +884,74 @@ document.addEventListener('DOMContentLoaded', function() {
         const centerPoint = getCenterPoint();
         const terms = Math.round(currentTerms);
         const signature = getFunctionSignature(funcDef);
+        const dimensions = funcDef.dimensions || 1;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const xMin = -2 * Math.PI;
         const xMax = 2 * Math.PI;
         const actualEvaluator = (x) => safeEvaluate(funcDef, buildPointForX(x, centerPoint));
         const [yMin, yMax] = determineRange(actualEvaluator, xMin, xMax, funcDef);
-        drawGrid(xMin, xMax, yMin, yMax);
-        drawFunction(
-            actualEvaluator,
-            xMin,
-            xMax,
-            yMin,
-            yMax,
-            ORIGINAL_COLOR,
-            3,
-            false,
-            1
-        );
-        drawFunction(
-            (x) => evaluateTaylorAt(buildPointForX(x, centerPoint), centerPoint, terms, funcDef, signature),
-            xMin,
-            xMax,
-            yMin,
-            yMax,
-            TAYLOR_COLOR,
-            3,
-            true,
-            drawProgress
-        );
-        drawExpansionPoint(centerPoint, xMin, xMax, yMin, yMax, funcDef);
+        if (dimensions === 1) {
+            draw2DGrid(xMin, xMax, yMin, yMax);
+            drawFunction2D(
+                actualEvaluator,
+                xMin,
+                xMax,
+                yMin,
+                yMax,
+                ORIGINAL_COLOR,
+                3,
+                false,
+                1
+            );
+            drawFunction2D(
+                (x) => evaluateTaylorAt(buildPointForX(x, centerPoint), centerPoint, terms, funcDef, signature),
+                xMin,
+                xMax,
+                yMin,
+                yMax,
+                TAYLOR_COLOR,
+                3,
+                true,
+                drawProgress
+            );
+            drawExpansionPoint2D(centerPoint, xMin, xMax, yMin, yMax, funcDef);
+        } else {
+            const dimsInfo = getWorldDimensions();
+            const zeroHeight = computeZeroHeight(yMin, yMax, dimsInfo.height);
+            const depthRange = SLIDER_RANGES.y;
+            draw3DCoordinateSystem(xMin, xMax, yMin, yMax, depthRange, dimsInfo, zeroHeight);
+            drawFunction3D(
+                actualEvaluator,
+                xMin,
+                xMax,
+                yMin,
+                yMax,
+                ORIGINAL_COLOR,
+                3,
+                false,
+                1,
+                centerPoint,
+                depthRange,
+                dimsInfo,
+                zeroHeight
+            );
+            drawFunction3D(
+                (x) => evaluateTaylorAt(buildPointForX(x, centerPoint), centerPoint, terms, funcDef, signature),
+                xMin,
+                xMax,
+                yMin,
+                yMax,
+                TAYLOR_COLOR,
+                3,
+                true,
+                drawProgress,
+                centerPoint,
+                depthRange,
+                dimsInfo,
+                zeroHeight
+            );
+            drawExpansionPoint3D(centerPoint, xMin, xMax, yMin, yMax, funcDef, depthRange, dimsInfo, zeroHeight);
+        }
         drawLegend(funcDef);
     }
 
@@ -809,6 +1119,7 @@ document.addEventListener('DOMContentLoaded', function() {
         customError.classList.remove('show');
         isPlaying = false;
         playButton.textContent = '▶ Abspielen';
+        viewState.isDragging = false;
         updateDimensionUI(dimensions);
         clearDerivativeCaches();
         drawProgress = 0;
@@ -919,7 +1230,40 @@ document.addEventListener('DOMContentLoaded', function() {
         draw();
     });
 
+    function attachRotationControls() {
+        canvas.addEventListener('pointerdown', (e) => {
+            if (getCurrentDimensions() === 1) return;
+            viewState.isDragging = true;
+            viewState.lastX = e.clientX;
+            viewState.lastY = e.clientY;
+            if (canvas.setPointerCapture) {
+                canvas.setPointerCapture(e.pointerId);
+            }
+        });
+        canvas.addEventListener('pointermove', (e) => {
+            if (!viewState.isDragging) return;
+            const dx = e.clientX - viewState.lastX;
+            const dy = e.clientY - viewState.lastY;
+            viewState.yaw += dx * 0.005;
+            viewState.pitch = Math.max(-0.2, Math.min(1.2, viewState.pitch + dy * 0.003));
+            viewState.lastX = e.clientX;
+            viewState.lastY = e.clientY;
+            draw();
+        });
+        function endDrag(e) {
+            if (viewState.isDragging) {
+                viewState.isDragging = false;
+                if (e.pointerId !== undefined && canvas.hasPointerCapture && canvas.hasPointerCapture(e.pointerId)) {
+                    canvas.releasePointerCapture(e.pointerId);
+                }
+            }
+        }
+        canvas.addEventListener('pointerup', endDrag);
+        canvas.addEventListener('pointerleave', endDrag);
+    }
+
     handleFunctionChange();
+    attachRotationControls();
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
     updateFormula();
