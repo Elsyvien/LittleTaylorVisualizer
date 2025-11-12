@@ -8,7 +8,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const functionSelect = document.getElementById('function-select');
     const customFunctionInput = document.getElementById('custom-function');
     const customFunctionGroup = document.getElementById('custom-function-group');
+    const customFunctionLabel = document.querySelector('label[for="custom-function"]');
     const customError = document.getElementById('custom-error');
+    const centerSliderY = document.getElementById('center-slider-y');
+    const centerValueY = document.getElementById('center-value-y');
+    const centerYGroup = document.getElementById('center-y-group');
+    const multiHint = document.getElementById('multi-hint');
     const playButton = document.getElementById('play-button');
     const resetButton = document.getElementById('reset-button');
     const formulaDisplay = document.getElementById('formula-display');
@@ -29,20 +34,36 @@ document.addEventListener('DOMContentLoaded', function() {
     const TERM_EASING = 6;
     const DRAW_SPEED_PLAYING = 6;
     const DRAW_SPEED_IDLE = 4;
+    const MAX_TERMS = {
+        1: 100,
+        2: 12
+    };
 
-    let customFunction = null;
-    let customFunctionStr = '';
+    const CUSTOM_LABELS = {
+        1: 'Eigene Funktion (z.B. x^2, sin(x)*x)',
+        2: 'Eigene Funktion (z.B. sin(x) + cos(y), x*y)'
+    };
+    const CUSTOM_PLACEHOLDERS = {
+        1: 'z.B. x^2 + 2*x',
+        2: 'z.B. sin(x)*y + y^2'
+    };
+
+    const customFunctions = { 1: null, 2: null };
+    const customFunctionStrings = { 1: '', 2: '' };
+
     function invalidateFormula() {
         needsFormulaUpdate = true;
     }
 
-    function parseCustomFunction(expr) {
+    function parseCustomFunction(expr, dimensions) {
         try {
             expr = expr.replace(/\^/g, '**').replace(/(\d)([a-z])/gi, '$1*$2');
-            const func = new Function('x', `
+            const args = dimensions === 1 ? 'x' : 'x, y';
+            const func = new Function(args, `
                 with (Math) { return ${expr}; }
             `);
-            if (!isFinite(func(0))) throw new Error();
+            const testValue = dimensions === 1 ? func(0) : func(0, 0);
+            if (!isFinite(testValue)) throw new Error();
             return func;
         } catch (e) {
             return null;
@@ -50,6 +71,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const derivCache = new Map();
+    const multiDerivCache = new Map();
     function numericalDerivative(func, x, order = 1, h = 0.001) {
         if (order === 0) return func(x);
         if (order > 20) return 0;
@@ -70,28 +92,79 @@ document.addEventListener('DOMContentLoaded', function() {
     const functions = {
         sin: {
             name: 'sin(x)',
-            func: Math.sin,
-            derivative: (x, n) => [Math.sin, Math.cos, (x) => -Math.sin(x), (x) => -Math.cos(x)][n % 4](x)
+            dimensions: 1,
+            func: ([x]) => Math.sin(x),
+            derivative: (x, n) => [Math.sin, Math.cos, (t) => -Math.sin(t), (t) => -Math.cos(t)][n % 4](x),
+            yRange: [-3, 3]
         },
         cos: {
             name: 'cos(x)',
-            func: Math.cos,
-            derivative: (x, n) => [Math.cos, (x) => -Math.sin(x), (x) => -Math.cos(x), Math.sin][n % 4](x)
+            dimensions: 1,
+            func: ([x]) => Math.cos(x),
+            derivative: (x, n) => [Math.cos, (t) => -Math.sin(t), (t) => -Math.cos(t), Math.sin][n % 4](x),
+            yRange: [-3, 3]
         },
         exp: {
             name: 'e^x',
-            func: Math.exp,
-            derivative: (x, n) => Math.exp(x)
+            dimensions: 1,
+            func: ([x]) => Math.exp(x),
+            derivative: (x, n) => Math.exp(x),
+            yRange: [-2, 10]
         },
         ln: {
             name: 'ln(1+x)',
-            func: x => Math.log(1 + x),
-            derivative: (x, n) => n === 0 ? Math.log(1 + x) : Math.pow(-1, n - 1) * factorial(n - 1) / Math.pow(1 + x, n)
+            dimensions: 1,
+            func: ([x]) => Math.log(1 + x),
+            derivative: (x, n) => n === 0 ? Math.log(1 + x) : Math.pow(-1, n - 1) * factorial(n - 1) / Math.pow(1 + x, n),
+            yRange: [-3, 3]
+        },
+        sinxy: {
+            name: 'sin(x) + cos(y)',
+            dimensions: 2,
+            func: ([x, y]) => Math.sin(x) + Math.cos(y),
+            yRange: [-3, 3]
+        },
+        expxy: {
+            name: 'e^{x·y}',
+            dimensions: 2,
+            func: ([x, y]) => Math.exp(x * y),
+            yRange: [-2, 10]
+        },
+        paraboloid: {
+            name: 'x² + y²',
+            dimensions: 2,
+            func: ([x, y]) => x * x + y * y,
+            yRange: [-5, 45]
+        },
+        saddle: {
+            name: 'x · y',
+            dimensions: 2,
+            func: ([x, y]) => x * y,
+            yRange: [-25, 25]
         },
         custom: {
             name: 'f(x)',
-            func: x => customFunction ? customFunction(x) : 0,
-            derivative: (x, n) => customFunction ? numericalDerivative(customFunction, x, n) : 0
+            dimensions: 1,
+            func: ([x]) => {
+                const fn = customFunctions[1];
+                return fn ? fn(x) : 0;
+            },
+            derivative: (x, n) => {
+                const fn = customFunctions[1];
+                return fn ? numericalDerivative(fn, x, n) : 0;
+            },
+            getSignature: () => `custom:${customFunctionStrings[1] || 'empty'}`,
+            yRange: [-3, 3]
+        },
+        custom2d: {
+            name: 'f(x,y)',
+            dimensions: 2,
+            func: ([x, y]) => {
+                const fn = customFunctions[2];
+                return fn ? fn(x, y) : 0;
+            },
+            getSignature: () => `custom2d:${customFunctionStrings[2] || 'empty'}`,
+            yRange: [-3, 3]
         }
     };
 
@@ -103,19 +176,207 @@ document.addEventListener('DOMContentLoaded', function() {
         return r;
     }
 
-    function taylorSeries(x, center, n) {
-        const f = functions[functionSelect.value];
+    function getCurrentFunctionDef() {
+        return functions[functionSelect.value];
+    }
+
+    function getCurrentDimensions() {
+        const def = getCurrentFunctionDef();
+        return def && def.dimensions ? def.dimensions : 1;
+    }
+
+    function getFunctionDisplayName(def = getCurrentFunctionDef()) {
+        if (functionSelect.value === 'custom') {
+            return customFunctionStrings[1] || 'f(x)';
+        }
+        if (functionSelect.value === 'custom2d') {
+            return customFunctionStrings[2] || 'f(x,y)';
+        }
+        return def.name;
+    }
+
+    function getFunctionSignature(def = getCurrentFunctionDef()) {
+        if (typeof def.getSignature === 'function') {
+            return def.getSignature();
+        }
+        return functionSelect.value;
+    }
+
+    function getCenterPoint() {
+        if (getCurrentDimensions() === 1) {
+            return [parseFloat(centerSlider.value)];
+        }
+        return [
+            parseFloat(centerSlider.value),
+            parseFloat(centerSliderY.value)
+        ];
+    }
+
+    function buildPointForX(x, centerPoint) {
+        if (getCurrentDimensions() === 1) return [x];
+        const point = centerPoint.slice();
+        point[0] = x;
+        return point;
+    }
+
+    function safeEvaluate(def, point) {
+        try {
+            const value = def.func(point);
+            return isFinite(value) ? value : NaN;
+        } catch (e) {
+            return NaN;
+        }
+    }
+
+    function getDefaultRange(def) {
+        if (def && Array.isArray(def.yRange)) {
+            return def.yRange;
+        }
+        return [-3, 3];
+    }
+
+    function determineRange(evaluator, xMin, xMax, def) {
+        const steps = 200;
+        let min = Infinity;
+        let max = -Infinity;
+        for (let i = 0; i <= steps; i++) {
+            const x = xMin + (i / steps) * (xMax - xMin);
+            const y = evaluator(x);
+            if (!isFinite(y)) continue;
+            if (y < min) min = y;
+            if (y > max) max = y;
+        }
+        if (!isFinite(min) || !isFinite(max)) {
+            return getDefaultRange(def);
+        }
+        if (Math.abs(max - min) < 1e-3) {
+            return [min - 1, max + 1];
+        }
+        const padding = (max - min) * 0.1;
+        return [min - padding, max + padding];
+    }
+
+    function enumerateMultiIndices(dimensions, order) {
+        const results = [];
+        function helper(idx, remaining, current) {
+            if (idx === dimensions) {
+                if (remaining === 0) results.push(current);
+                return;
+            }
+            for (let i = 0; i <= remaining; i++) {
+                helper(idx + 1, remaining - i, [...current, i]);
+            }
+        }
+        helper(0, order, []);
+        return results;
+    }
+
+    function multiFactorial(multiIndex) {
+        return multiIndex.reduce((acc, value) => acc * factorial(value), 1);
+    }
+
+    function getDerivativeValue(def, signature, centerPoint, multiIndex) {
+        if (def.dimensions === 1 && typeof def.derivative === 'function' && multiIndex.length === 1) {
+            return def.derivative(centerPoint[0], multiIndex[0]);
+        }
+        return numericalMultiDerivative(def, signature, centerPoint, multiIndex);
+    }
+
+    function numericalMultiDerivative(def, signature, point, orders, h = 0.001) {
+        const key = `${signature}|${point.map(v => v.toFixed(4)).join(',')}|${orders.join(',')}`;
+        if (multiDerivCache.has(key)) return multiDerivCache.get(key);
+        let result;
+        if (orders.every(order => order === 0)) {
+            result = safeEvaluate(def, point);
+        } else {
+            const axis = orders.findIndex(order => order > 0);
+            const reducedOrders = orders.slice();
+            reducedOrders[axis] -= 1;
+            const forwardPoint = point.slice();
+            forwardPoint[axis] += h;
+            const backwardPoint = point.slice();
+            backwardPoint[axis] -= h;
+            const forward = numericalMultiDerivative(def, signature, forwardPoint, reducedOrders, h);
+            const backward = numericalMultiDerivative(def, signature, backwardPoint, reducedOrders, h);
+            result = (forward - backward) / (2 * h);
+        }
+        if (!isFinite(result)) result = 0;
+        if (multiDerivCache.size > 1000) multiDerivCache.clear();
+        multiDerivCache.set(key, result);
+        return result;
+    }
+
+    function evaluateOneDimTaylor(def, centerPoint, x, terms) {
         let sum = 0;
-        for (let i = 0; i < n; i++) {
+        for (let i = 0; i < terms; i++) {
             try {
-                const d = f.derivative(center, i);
+                const d = def.derivative(centerPoint[0], i);
                 const fact = factorial(i);
                 if (!isFinite(d) || !isFinite(fact)) continue;
-                const term = (d / fact) * Math.pow(x - center, i);
+                const term = (d / fact) * Math.pow(x - centerPoint[0], i);
                 if (isFinite(term)) sum += term;
             } catch (e) { continue; }
         }
         return sum;
+    }
+
+    function evaluateMultiDimTaylor(def, signature, centerPoint, point, terms) {
+        const dims = def.dimensions;
+        const deltas = point.map((value, idx) => value - centerPoint[idx]);
+        let sum = 0;
+        for (let totalOrder = 0; totalOrder < terms; totalOrder++) {
+            const multiIndices = enumerateMultiIndices(dims, totalOrder);
+            for (const multiIdx of multiIndices) {
+                const derivative = getDerivativeValue(def, signature, centerPoint, multiIdx);
+                if (!isFinite(derivative)) continue;
+                const denom = multiFactorial(multiIdx);
+                if (!isFinite(denom) || denom === 0) continue;
+                let product = 1;
+                for (let i = 0; i < dims; i++) {
+                    if (multiIdx[i] === 0) continue;
+                    product *= Math.pow(deltas[i], multiIdx[i]);
+                }
+                if (!isFinite(product)) continue;
+                sum += (derivative / denom) * product;
+            }
+        }
+        return sum;
+    }
+
+    function evaluateTaylorAt(point, centerPoint, terms, def, signature) {
+        if (def.dimensions === 1) {
+            return evaluateOneDimTaylor(def, centerPoint, point[0], terms);
+        }
+        return evaluateMultiDimTaylor(def, signature, centerPoint, point, terms);
+    }
+
+    function clearDerivativeCaches() {
+        derivCache.clear();
+        multiDerivCache.clear();
+    }
+
+    function adjustTermsSlider(dimensions) {
+        const max = MAX_TERMS[dimensions] || MAX_TERMS[1];
+        termsSlider.max = max;
+        if (parseInt(termsSlider.value, 10) > max) {
+            termsSlider.value = max;
+            currentTerms = targetTerms = max;
+            termsValue.textContent = max;
+        }
+    }
+
+    function updateDimensionUI(dimensions) {
+        const isMulti = dimensions > 1;
+        centerYGroup.style.display = isMulti ? 'flex' : 'none';
+        multiHint.style.display = isMulti ? 'flex' : 'none';
+        centerSliderY.disabled = !isMulti;
+        adjustTermsSlider(dimensions);
+    }
+
+    function updateCustomInputMeta(dimensions) {
+        customFunctionLabel.textContent = CUSTOM_LABELS[dimensions];
+        customFunctionInput.placeholder = CUSTOM_PLACEHOLDERS[dimensions];
+        customFunctionInput.value = customFunctionStrings[dimensions];
     }
 
     function toScreenX(x, xMin, xMax) {
@@ -217,10 +478,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function drawExpansionPoint(center, xMin, xMax, yMin, yMax) {
-        const y = functions[functionSelect.value].func(center);
+    function drawExpansionPoint(centerPoint, xMin, xMax, yMin, yMax, def) {
+        const y = safeEvaluate(def, centerPoint);
         if (!isFinite(y)) return;
-        const sx = toScreenX(center, xMin, xMax);
+        const sx = toScreenX(centerPoint[0], xMin, xMax);
         const sy = toScreenY(y, yMin, yMax);
         const time = Date.now() / 1000;
         for (let i = 0; i < 3; i++) {
@@ -249,11 +510,14 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.font = 'bold 13px sans-serif';
         ctx.textAlign = 'center';
         ctx.shadowBlur = 10;
-        ctx.fillText(`a = ${center.toFixed(1)}`, sx, sy - 25);
+        const label = def.dimensions === 1
+            ? `a = ${centerPoint[0].toFixed(1)}`
+            : `a = (${centerPoint[0].toFixed(1)}, ${centerPoint[1].toFixed(1)})`;
+        ctx.fillText(label, sx, sy - 25);
         ctx.shadowBlur = 0;
     }
 
-    function drawLegend() {
+    function drawLegend(def) {
         const x = canvas.width - PADDING - 200;
         const y = PADDING + 25;
         ctx.font = '14px sans-serif';
@@ -268,7 +532,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.stroke();
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#e0e0e0';
-        const fname = functionSelect.value === 'custom' ? customFunctionStr || 'f(x)' : functions[functionSelect.value].name;
+        const fname = getFunctionDisplayName(def);
         ctx.fillText(fname, x + 50, y + 5);
         ctx.strokeStyle = TAYLOR_COLOR;
         ctx.setLineDash([8, 4]);
@@ -285,40 +549,141 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function draw() {
-        const center = parseFloat(centerSlider.value);
+        const funcDef = getCurrentFunctionDef();
+        const centerPoint = getCenterPoint();
         const terms = Math.round(currentTerms);
+        const signature = getFunctionSignature(funcDef);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const xMin = -2 * Math.PI, xMax = 2 * Math.PI;
-        let yMin = -3, yMax = 3;
-        if (functionSelect.value === 'exp') { yMin = -2; yMax = 10; }
+        const xMin = -2 * Math.PI;
+        const xMax = 2 * Math.PI;
+        const actualEvaluator = (x) => safeEvaluate(funcDef, buildPointForX(x, centerPoint));
+        const [yMin, yMax] = determineRange(actualEvaluator, xMin, xMax, funcDef);
         drawGrid(xMin, xMax, yMin, yMax);
-        drawFunction(functions[functionSelect.value].func, xMin, xMax, yMin, yMax, ORIGINAL_COLOR, 3, false, 1);
-        drawFunction(x => taylorSeries(x, center, terms), xMin, xMax, yMin, yMax, TAYLOR_COLOR, 3, true, drawProgress);
-        drawExpansionPoint(center, xMin, xMax, yMin, yMax);
-        drawLegend();
+        drawFunction(
+            actualEvaluator,
+            xMin,
+            xMax,
+            yMin,
+            yMax,
+            ORIGINAL_COLOR,
+            3,
+            false,
+            1
+        );
+        drawFunction(
+            (x) => evaluateTaylorAt(buildPointForX(x, centerPoint), centerPoint, terms, funcDef, signature),
+            xMin,
+            xMax,
+            yMin,
+            yMax,
+            TAYLOR_COLOR,
+            3,
+            true,
+            drawProgress
+        );
+        drawExpansionPoint(centerPoint, xMin, xMax, yMin, yMax, funcDef);
+        drawLegend(funcDef);
     }
 
-    function updateFormula() {
-        const center = parseFloat(centerSlider.value);
-        const terms = parseInt(termsSlider.value);
-        const f = functions[functionSelect.value];
-        let formula = (functionSelect.value === 'custom' ? customFunctionStr || 'f(x)' : f.name) + ' ≈ ';
-        for (let i = 0; i < Math.min(terms, 5); i++) {
+    const VARIABLE_LABELS = ['x', 'y', 'z', 'w'];
+
+    function formatTermProduct(powers, centerPoint) {
+        const parts = [];
+        powers.forEach((power, idx) => {
+            if (power === 0) return;
+            const label = VARIABLE_LABELS[idx] || `x${idx + 1}`;
+            const base = `(${label} - ${centerPoint[idx].toFixed(2)})`;
+            parts.push(power === 1 ? base : `${base}^${power}`);
+        });
+        return parts.join('·');
+    }
+
+    function buildFormulaFromTerms(termsList, centerPoint) {
+        if (!termsList.length) return '0';
+        return termsList.map((term, index) => {
+            const sign = term.coeff >= 0 ? (index === 0 ? '' : ' + ') : (index === 0 ? '-' : ' - ');
+            const absCoeff = Math.abs(term.coeff);
+            const hasVariables = term.powers.some(power => power > 0);
+            let coeffStr = absCoeff.toFixed(3);
+            if (hasVariables && Math.abs(absCoeff - 1) < 0.001) {
+                coeffStr = '';
+            }
+            const product = formatTermProduct(term.powers, centerPoint);
+            let body = '';
+            if (!product) {
+                body = coeffStr;
+            } else if (!coeffStr) {
+                body = product;
+            } else {
+                body = `${coeffStr}·${product}`;
+            }
+            if (!body) body = '0';
+            return `${sign}${body}`;
+        }).join('');
+    }
+
+    function formatOneDimFormula(def, centerPoint, terms) {
+        let result = '';
+        const maxTerms = Math.min(terms, 5);
+        for (let i = 0; i < maxTerms; i++) {
             try {
-                const d = f.derivative(center, i);
+                const d = def.derivative(centerPoint[0], i);
                 const fact = factorial(i);
                 if (!isFinite(d) || !isFinite(fact)) continue;
                 const c = d / fact;
-                if (i > 0 && c >= 0) formula += ' + ';
-                else if (i > 0 && c < 0) formula += ' - ';
+                if (Math.abs(c) < 1e-6) continue;
+                if (result) result += c >= 0 ? ' + ' : ' - ';
+                else if (c < 0) result += '-';
                 const ac = Math.abs(c);
-                if (i === 0) formula += ac.toFixed(3);
-                else if (i === 1) formula += (Math.abs(ac - 1) < 0.001 ? '' : ac.toFixed(3)) + `(x - ${center})`;
-                else formula += (Math.abs(ac - 1) < 0.001 ? '' : ac.toFixed(3)) + `(x - ${center})^${i}`;
-            } catch (e) {}
+                if (i === 0) {
+                    result += ac.toFixed(3);
+                } else if (i === 1) {
+                    const coeff = Math.abs(ac - 1) < 0.001 ? '' : ac.toFixed(3);
+                    result += `${coeff}(x - ${centerPoint[0].toFixed(2)})`;
+                } else {
+                    const coeff = Math.abs(ac - 1) < 0.001 ? '' : ac.toFixed(3);
+                    result += `${coeff}(x - ${centerPoint[0].toFixed(2)})^${i}`;
+                }
+            } catch (e) { continue; }
         }
-        if (terms > 5) formula += ' + ...';
-        formulaDisplay.textContent = formula;
+        if (!result) result = '0';
+        if (terms > 5) result += ' + ...';
+        return result;
+    }
+
+    function formatMultiDimFormula(def, centerPoint, terms) {
+        const signature = getFunctionSignature(def);
+        const maxOrder = Math.min(terms, 3);
+        const pieces = [];
+        for (let totalOrder = 0; totalOrder < maxOrder; totalOrder++) {
+            const indices = enumerateMultiIndices(def.dimensions, totalOrder);
+            for (const multiIdx of indices) {
+                const derivative = getDerivativeValue(def, signature, centerPoint, multiIdx);
+                if (!isFinite(derivative)) continue;
+                const denom = multiFactorial(multiIdx);
+                if (!isFinite(denom) || denom === 0) continue;
+                const coeff = derivative / denom;
+                if (Math.abs(coeff) < 1e-6) continue;
+                pieces.push({ coeff, powers: multiIdx });
+            }
+        }
+        let formula = buildFormulaFromTerms(pieces, centerPoint);
+        if (terms > maxOrder) {
+            formula += ' + ...';
+        }
+        return formula;
+    }
+
+    function updateFormula() {
+        const def = getCurrentFunctionDef();
+        const dims = getCurrentDimensions();
+        const centerPoint = getCenterPoint();
+        const terms = parseInt(termsSlider.value, 10);
+        const base = `${getFunctionDisplayName(def)} ≈ `;
+        const body = dims === 1
+            ? formatOneDimFormula(def, centerPoint, terms)
+            : formatMultiDimFormula(def, centerPoint, terms);
+        formulaDisplay.textContent = base + body;
     }
 
     function frameLoop(timestamp) {
@@ -373,30 +738,60 @@ document.addEventListener('DOMContentLoaded', function() {
         draw();
     }
 
-    functionSelect.addEventListener('change', () => {
-        customFunctionGroup.style.display = functionSelect.value === 'custom' ? 'flex' : 'none';
-        derivCache.clear();
+    function handleFunctionChange() {
+        const def = getCurrentFunctionDef();
+        const dimensions = getCurrentDimensions();
+        const isCustom = functionSelect.value === 'custom' || functionSelect.value === 'custom2d';
+        customFunctionGroup.style.display = isCustom ? 'flex' : 'none';
+        if (isCustom) {
+            updateCustomInputMeta(dimensions);
+            customError.classList.remove('show');
+        } else {
+            customError.classList.remove('show');
+        }
+        isPlaying = false;
+        playButton.textContent = '▶ Abspielen';
+        updateDimensionUI(dimensions);
+        clearDerivativeCaches();
         drawProgress = 0;
         invalidateFormula();
-    });
+    }
+
+    functionSelect.addEventListener('change', handleFunctionChange);
 
     customFunctionInput.addEventListener('input', (e) => {
-        customFunctionStr = e.target.value.trim();
-        if (!customFunctionStr) { customError.classList.remove('show'); return; }
-        const f = parseCustomFunction(customFunctionStr);
-        if (f) {
-            customFunction = f;
+        const def = getCurrentFunctionDef();
+        const dimensions = def.dimensions;
+        const expr = e.target.value.trim();
+        customFunctionStrings[dimensions] = expr;
+        if (!expr) {
+            customFunctions[dimensions] = null;
             customError.classList.remove('show');
-            derivCache.clear();
+            clearDerivativeCaches();
+            drawProgress = 0;
+            invalidateFormula();
+            return;
+        }
+        const parsed = parseCustomFunction(expr, dimensions);
+        if (parsed) {
+            customFunctions[dimensions] = parsed;
+            customError.classList.remove('show');
+            clearDerivativeCaches();
             drawProgress = 0;
             invalidateFormula();
         } else {
+            customFunctions[dimensions] = null;
             customError.classList.add('show');
+            clearDerivativeCaches();
+            drawProgress = 0;
+            invalidateFormula();
         }
     });
 
     termsSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value, 10);
+        const max = parseInt(termsSlider.max, 10);
+        let value = parseInt(e.target.value, 10);
+        if (value > max) value = max;
         currentTerms = targetTerms = value;
         termsValue.textContent = value;
         isPlaying = false;
@@ -407,7 +802,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     centerSlider.addEventListener('input', (e) => {
         centerValue.textContent = parseFloat(e.target.value).toFixed(1);
-        derivCache.clear();
+        clearDerivativeCaches();
+        drawProgress = 0;
+        invalidateFormula();
+    });
+
+    centerSliderY.addEventListener('input', (e) => {
+        centerValueY.textContent = parseFloat(e.target.value).toFixed(1);
+        if (getCurrentDimensions() === 1) return;
+        clearDerivativeCaches();
         drawProgress = 0;
         invalidateFormula();
     });
@@ -438,14 +841,16 @@ document.addEventListener('DOMContentLoaded', function() {
         termsValue.textContent = 1;
         centerSlider.value = 0;
         centerValue.textContent = '0.0';
+        centerSliderY.value = 0;
+        centerValueY.textContent = '0.0';
         functionSelect.value = 'sin';
-        customFunctionGroup.style.display = 'none';
-        derivCache.clear();
+        handleFunctionChange();
         drawProgress = 1;
         invalidateFormula();
         draw();
     });
 
+    handleFunctionChange();
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
     updateFormula();
