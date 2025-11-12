@@ -53,12 +53,12 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     const SLIDER_RANGES = {
         y: {
-            min: parseFloat(centerSliderY.min || '-5'),
-            max: parseFloat(centerSliderY.max || '5')
+            min: parseFloat(centerSliderY?.min || '-5'),
+            max: parseFloat(centerSliderY?.max || '5')
         },
         z: {
-            min: parseFloat(centerSliderZ.min || '-5'),
-            max: parseFloat(centerSliderZ.max || '5')
+            min: parseFloat(centerSliderZ?.min || '-5'),
+            max: parseFloat(centerSliderZ?.max || '5')
         }
     };
 
@@ -97,7 +97,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function drawFunction3D(func, xMin, xMax, yMin, yMax, color, lineWidth, dashed, progress, centerPoint, depthRange, dims, zeroHeight) {
+    function drawFunction3D(func, xMin, xMax, yMin, yMax, color, lineWidth, dashed, progress, centerPoint, depthMeta, dims, zeroHeight) {
+        const depthValue = depthMeta.value;
+        const depthRange = depthMeta.range;
         ctx.strokeStyle = color;
         ctx.lineWidth = lineWidth;
         ctx.shadowBlur = 15;
@@ -106,7 +108,6 @@ document.addEventListener('DOMContentLoaded', function() {
         let started = false;
         const steps = 500;
         const maxStep = Math.floor(steps * progress);
-        const depthValue = centerPoint[1] || 0;
         for (let i = 0; i <= maxStep; i++) {
             const x = xMin + i * (xMax - xMin) / steps;
             try {
@@ -328,6 +329,29 @@ document.addEventListener('DOMContentLoaded', function() {
         if (dims >= 2) point.push(parseFloat(centerSliderY.value));
         if (dims >= 3) point.push(parseFloat(centerSliderZ.value));
         return point;
+    }
+
+    function getDepthMeta(centerPoint) {
+        const dims = centerPoint.length;
+        if (dims >= 3) {
+            return {
+                value: centerPoint[2],
+                range: SLIDER_RANGES.z,
+                label: 'z'
+            };
+        }
+        if (dims === 2) {
+            return {
+                value: centerPoint[1],
+                range: SLIDER_RANGES.y,
+                label: 'y'
+            };
+        }
+        return {
+            value: 0,
+            range: { min: -5, max: 5 },
+            label: ''
+        };
     }
 
     function buildPointForX(x, centerPoint) {
@@ -607,7 +631,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function draw3DCoordinateSystem(xMin, xMax, yMin, yMax, depthRange, dims, zeroHeight) {
+    function draw3DCoordinateSystem(xMin, xMax, yMin, yMax, depthMeta, dims, zeroHeight) {
+        const depthRange = depthMeta.range;
         const xSteps = 12;
         const zSteps = 8;
         const planeColor = ctx.createLinearGradient(0, canvas.height - PADDING, 0, PADDING);
@@ -681,6 +706,27 @@ document.addEventListener('DOMContentLoaded', function() {
             ctx.stroke();
         }
 
+        // Slice indicator
+        if (!isNaN(depthMeta.value)) {
+            const sliceVal = Math.max(depthRange.min, Math.min(depthRange.max, depthMeta.value));
+            const sliceStart = projectPoint3D({
+                x: toWorldX(xMin, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(sliceVal, depthRange.min, depthRange.max, dims.depth)
+            });
+            const sliceEnd = projectPoint3D({
+                x: toWorldX(xMax, xMin, xMax, dims.width),
+                y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
+                z: toWorldZ(sliceVal, depthRange.min, depthRange.max, dims.depth)
+            });
+            ctx.strokeStyle = 'rgba(120, 119, 198, 0.35)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(sliceStart.x, sliceStart.y);
+            ctx.lineTo(sliceEnd.x, sliceEnd.y);
+            ctx.stroke();
+        }
+
         function drawAxis(fromPoint, toPoint, label, color) {
             const from = projectPoint3D(fromPoint);
             const to = projectPoint3D(toPoint);
@@ -709,18 +755,22 @@ document.addEventListener('DOMContentLoaded', function() {
             'x',
             'rgba(120, 119, 198, 0.8)'
         );
+        const fMin = Math.min(0, yMin);
+        const fMax = Math.max(0, yMax);
         drawAxis(
-            { ...originPoint, y: toWorldY(yMin, yMin, yMax, dims.height, zeroHeight) },
-            { ...originPoint, y: toWorldY(yMax, yMin, yMax, dims.height, zeroHeight) },
+            { ...originPoint, y: toWorldY(fMin, yMin, yMax, dims.height, zeroHeight) },
+            { ...originPoint, y: toWorldY(fMax, yMin, yMax, dims.height, zeroHeight) },
             'f',
             'rgba(120, 119, 198, 0.8)'
         );
-        drawAxis(
-            { ...originPoint, z: toWorldZ(depthRange.min, depthRange.min, depthRange.max, dims.depth) },
-            { ...originPoint, z: toWorldZ(depthRange.max, depthRange.min, depthRange.max, dims.depth) },
-            'z',
-            'rgba(72, 149, 239, 0.9)'
-        );
+        if (depthMeta.label) {
+            drawAxis(
+                { ...originPoint, z: toWorldZ(depthRange.min, depthRange.min, depthRange.max, dims.depth) },
+                { ...originPoint, z: toWorldZ(depthRange.max, depthRange.min, depthRange.max, dims.depth) },
+                depthMeta.label,
+                'rgba(72, 149, 239, 0.9)'
+            );
+        }
     }
 
     function drawFunction2D(func, xMin, xMax, yMin, yMax, color, lineWidth, dashed, progress) {
@@ -807,13 +857,15 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.shadowBlur = 0;
     }
 
-    function drawExpansionPoint3D(centerPoint, xMin, xMax, yMin, yMax, def, depthRange, dims, zeroHeight) {
+    function drawExpansionPoint3D(centerPoint, xMin, xMax, yMin, yMax, def, depthMeta, dims, zeroHeight) {
+        const depthRange = depthMeta.range;
+        const depthValue = depthMeta.value;
         const y = safeEvaluate(def, centerPoint);
         if (!isFinite(y)) return;
         const worldPoint = {
             x: toWorldX(centerPoint[0], xMin, xMax, dims.width),
             y: toWorldY(y, yMin, yMax, dims.height, zeroHeight),
-            z: toWorldZ(centerPoint[1] || 0, depthRange.min, depthRange.max, dims.depth)
+            z: toWorldZ(depthValue, depthRange.min, depthRange.max, dims.depth)
         };
         const screen = projectPoint3D(worldPoint);
         const time = Date.now() / 1000;
@@ -918,8 +970,8 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             const dimsInfo = getWorldDimensions();
             const zeroHeight = computeZeroHeight(yMin, yMax, dimsInfo.height);
-            const depthRange = SLIDER_RANGES.y;
-            draw3DCoordinateSystem(xMin, xMax, yMin, yMax, depthRange, dimsInfo, zeroHeight);
+            const depthMeta = getDepthMeta(centerPoint);
+            draw3DCoordinateSystem(xMin, xMax, yMin, yMax, depthMeta, dimsInfo, zeroHeight);
             drawFunction3D(
                 actualEvaluator,
                 xMin,
@@ -931,7 +983,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 false,
                 1,
                 centerPoint,
-                depthRange,
+                depthMeta,
                 dimsInfo,
                 zeroHeight
             );
@@ -946,11 +998,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 true,
                 drawProgress,
                 centerPoint,
-                depthRange,
+                depthMeta,
                 dimsInfo,
                 zeroHeight
             );
-            drawExpansionPoint3D(centerPoint, xMin, xMax, yMin, yMax, funcDef, depthRange, dimsInfo, zeroHeight);
+            drawExpansionPoint3D(centerPoint, xMin, xMax, yMin, yMax, funcDef, depthMeta, dimsInfo, zeroHeight);
         }
         drawLegend(funcDef);
     }
