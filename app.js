@@ -37,12 +37,12 @@ document.addEventListener('DOMContentLoaded', function() {
         lastY: 0
     };
 
-    const PADDING = 60;
-    const GRID_COLOR = 'rgba(120, 119, 198, 0.15)';
-    const AXIS_COLOR = 'rgba(120, 119, 198, 0.5)';
-    const ORIGINAL_COLOR = '#7877c6';
-    const TAYLOR_COLOR = '#4895ef';
-    const POINT_COLOR = '#ff6b9d';
+    const PADDING = 80;
+    const GRID_COLOR = 'rgba(255, 255, 255, 0.05)';
+    const AXIS_COLOR = 'rgba(255, 255, 255, 0.2)';
+    const ORIGINAL_COLOR = '#6366f1'; // Indigo
+    const TAYLOR_COLOR = '#ec4899';   // Pink
+    const POINT_COLOR = '#ffffff';
     const TERM_EASING = 6;
     const DRAW_SPEED_PLAYING = 6;
     const DRAW_SPEED_IDLE = 4;
@@ -63,19 +63,22 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     const CUSTOM_LABELS = {
-        1: 'Eigene Funktion (z.B. x^2, sin(x)*x)',
-        2: 'Eigene Funktion (z.B. sin(x) + cos(y), x*y)',
-        3: 'Eigene Funktion (z.B. sin(x) + y*z, x*y*z)'
+        1: 'Custom Function (e.g. x^2, sin(x)*x)',
+        2: 'Custom Function (e.g. sin(x) + cos(y), x*y)',
+        3: 'Custom Function (e.g. sin(x) + y*z, x*y*z)'
     };
     const CUSTOM_PLACEHOLDERS = {
-        1: 'z.B. x^2 + 2*x',
-        2: 'z.B. sin(x)*y + y^2',
-        3: 'z.B. x*y + z^2'
+        1: 'e.g. x^2 + 2*x',
+        2: 'e.g. sin(x)*y + y^2',
+        3: 'e.g. x*y + z^2'
     };
 
     const customFunctions = { 1: null, 2: null, 3: null };
     const customFunctionStrings = { 1: '', 2: '', 3: '' };
 
+    const PLAY_HTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Animate`;
+    const PAUSE_HTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg> Pause`;
+    
     function invalidateFormula() {
         needsFormulaUpdate = true;
     }
@@ -516,9 +519,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (dimensions > 1) {
             multiHint.style.display = 'flex';
             if (dimensions === 2) {
-                multiHintText.textContent = 'Bei 2D-Funktionen wird der Schnitt entlang der x-Achse bei festem y = a_y angezeigt.';
+                multiHintText.textContent = 'For 2D, visualizing slice along x-axis at fixed y = a_y.';
             } else {
-                multiHintText.textContent = 'Bei 3D-Funktionen wird der Schnitt entlang der x-Achse bei festem y = a_y und z = a_z angezeigt.';
+                multiHintText.textContent = 'For 3D, visualizing slice along x-axis at fixed y = a_y and z = a_z.';
             }
         } else {
             multiHint.style.display = 'none';
@@ -533,17 +536,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function toScreenX(x, xMin, xMax) {
-        return PADDING + ((x - xMin) / (xMax - xMin)) * (canvas.width - 2 * PADDING);
+        return PADDING + ((x - xMin) / (xMax - xMin)) * (canvas.clientWidth - 2 * PADDING);
     }
 
     function toScreenY(y, yMin, yMax) {
-        return canvas.height - PADDING - ((y - yMin) / (yMax - yMin)) * (canvas.height - 2 * PADDING);
+        return canvas.clientHeight - PADDING - ((y - yMin) / (yMax - yMin)) * (canvas.clientHeight - 2 * PADDING);
     }
 
     function getWorldDimensions() {
-        const width = canvas.width - 2 * PADDING;
+        const width = canvas.clientWidth - 2 * PADDING;
         const depth = width * 0.7;
-        const height = canvas.height - 2 * PADDING;
+        const height = canvas.clientHeight - 2 * PADDING;
         return { width, depth, height };
     }
 
@@ -580,8 +583,8 @@ document.addEventListener('DOMContentLoaded', function() {
         rotatedZ = y * sinPitch + rotatedZ * cosPitch + viewState.distance;
         const perspective = viewState.distance / (viewState.distance + rotatedZ);
         return {
-            x: canvas.width / 2 + rotatedX * perspective,
-            y: canvas.height - PADDING - rotatedY * perspective
+            x: canvas.clientWidth / 2 + rotatedX * perspective,
+            y: canvas.clientHeight / 2 - rotatedY * perspective
         };
     }
 
@@ -591,13 +594,13 @@ document.addEventListener('DOMContentLoaded', function() {
         for (let x = Math.ceil(xMin); x <= Math.floor(xMax); x++) {
             ctx.beginPath();
             ctx.moveTo(toScreenX(x, xMin, xMax), PADDING);
-            ctx.lineTo(toScreenX(x, xMin, xMax), canvas.height - PADDING);
+            ctx.lineTo(toScreenX(x, xMin, xMax), canvas.clientHeight - PADDING);
             ctx.stroke();
         }
         for (let y = Math.ceil(yMin); y <= Math.floor(yMax); y++) {
             ctx.beginPath();
             ctx.moveTo(PADDING, toScreenY(y, yMin, yMax));
-            ctx.lineTo(canvas.width - PADDING, toScreenY(y, yMin, yMax));
+            ctx.lineTo(canvas.clientWidth - PADDING, toScreenY(y, yMin, yMax));
             ctx.stroke();
         }
         ctx.strokeStyle = AXIS_COLOR;
@@ -607,13 +610,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (yMin <= 0 && yMax >= 0) {
             ctx.beginPath();
             ctx.moveTo(PADDING, toScreenY(0, yMin, yMax));
-            ctx.lineTo(canvas.width - PADDING, toScreenY(0, yMin, yMax));
+            ctx.lineTo(canvas.clientWidth - PADDING, toScreenY(0, yMin, yMax));
             ctx.stroke();
         }
         if (xMin <= 0 && xMax >= 0) {
             ctx.beginPath();
             ctx.moveTo(toScreenX(0, xMin, xMax), PADDING);
-            ctx.lineTo(toScreenX(0, xMin, xMax), canvas.height - PADDING);
+            ctx.lineTo(toScreenX(0, xMin, xMax), canvas.clientHeight - PADDING);
             ctx.stroke();
         }
         ctx.shadowBlur = 0;
@@ -635,9 +638,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const depthRange = depthMeta.range;
         const xSteps = 12;
         const zSteps = 8;
-        const planeColor = ctx.createLinearGradient(0, canvas.height - PADDING, 0, PADDING);
-        planeColor.addColorStop(0, 'rgba(20, 20, 40, 0.5)');
-        planeColor.addColorStop(1, 'rgba(20, 20, 60, 0.2)');
+        const planeColor = ctx.createLinearGradient(0, canvas.clientHeight - PADDING, 0, PADDING);
+        planeColor.addColorStop(0, 'rgba(30, 32, 40, 0.4)');
+        planeColor.addColorStop(1, 'rgba(30, 32, 40, 0.1)');
         const corners = [
             projectPoint3D({
                 x: toWorldX(xMin, xMin, xMax, dims.width),
@@ -667,7 +670,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.closePath();
         ctx.fill();
 
-        ctx.strokeStyle = 'rgba(120, 119, 198, 0.12)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.lineWidth = 1;
         for (let xi = 0; xi <= xSteps; xi++) {
             const t = xi / xSteps;
@@ -719,7 +722,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 y: toWorldY(0, yMin, yMax, dims.height, zeroHeight),
                 z: toWorldZ(sliceVal, depthRange.min, depthRange.max, dims.depth)
             });
-            ctx.strokeStyle = 'rgba(120, 119, 198, 0.35)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(sliceStart.x, sliceStart.y);
@@ -740,7 +743,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ctx.stroke();
             ctx.shadowBlur = 0;
             ctx.fillStyle = color;
-            ctx.font = '12px sans-serif';
+            ctx.font = '12px Inter, sans-serif';
             ctx.fillText(label, to.x + 6, to.y - 6);
         }
 
@@ -753,7 +756,7 @@ document.addEventListener('DOMContentLoaded', function() {
             { ...originPoint, x: toWorldX(xMin, xMin, xMax, dims.width) },
             { ...originPoint, x: toWorldX(xMax, xMin, xMax, dims.width) },
             'x',
-            'rgba(120, 119, 198, 0.8)'
+            'rgba(255, 255, 255, 0.4)'
         );
         const fMin = Math.min(0, yMin);
         const fMax = Math.max(0, yMax);
@@ -761,14 +764,14 @@ document.addEventListener('DOMContentLoaded', function() {
             { ...originPoint, y: toWorldY(fMin, yMin, yMax, dims.height, zeroHeight) },
             { ...originPoint, y: toWorldY(fMax, yMin, yMax, dims.height, zeroHeight) },
             'f',
-            'rgba(120, 119, 198, 0.8)'
+            'rgba(255, 255, 255, 0.4)'
         );
         if (depthMeta.label) {
             drawAxis(
                 { ...originPoint, z: toWorldZ(depthRange.min, depthRange.min, depthRange.max, dims.depth) },
                 { ...originPoint, z: toWorldZ(depthRange.max, depthRange.min, depthRange.max, dims.depth) },
                 depthMeta.label,
-                'rgba(72, 149, 239, 0.9)'
+                'rgba(99, 102, 241, 0.8)'
             );
         }
     }
@@ -829,8 +832,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const radius = 10 + phase * 20;
             const alpha = (1 - phase) * 0.3;
             const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, radius);
-            grad.addColorStop(0, `rgba(255, 107, 157, ${alpha})`);
-            grad.addColorStop(1, 'rgba(255, 107, 157, 0)');
+            grad.addColorStop(0, `rgba(236, 72, 153, ${alpha})`);
+            grad.addColorStop(1, 'rgba(236, 72, 153, 0)');
             ctx.fillStyle = grad;
             ctx.beginPath();
             ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
@@ -842,12 +845,12 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.beginPath();
         ctx.arc(sx, sy, 6, 0, 2 * Math.PI);
         ctx.fill();
-        ctx.strokeStyle = '#1a1a2e';
+        ctx.strokeStyle = '#0f1115';
         ctx.lineWidth = 2;
         ctx.shadowBlur = 0;
         ctx.stroke();
         ctx.fillStyle = POINT_COLOR;
-        ctx.font = 'bold 13px sans-serif';
+        ctx.font = 'bold 13px Inter, sans-serif';
         ctx.textAlign = 'center';
         ctx.shadowBlur = 10;
         const label = centerPoint.length === 1
@@ -874,8 +877,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const radius = 10 + phase * 20;
             const alpha = (1 - phase) * 0.3;
             const grad = ctx.createRadialGradient(screen.x, screen.y, 0, screen.x, screen.y, radius);
-            grad.addColorStop(0, `rgba(255, 107, 157, ${alpha})`);
-            grad.addColorStop(1, 'rgba(255, 107, 157, 0)');
+            grad.addColorStop(0, `rgba(236, 72, 153, ${alpha})`);
+            grad.addColorStop(1, 'rgba(236, 72, 153, 0)');
             ctx.fillStyle = grad;
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, radius, 0, 2 * Math.PI);
@@ -889,7 +892,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.fill();
         ctx.shadowBlur = 0;
         ctx.fillStyle = POINT_COLOR;
-        ctx.font = 'bold 13px sans-serif';
+        ctx.font = 'bold 13px Inter, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(
             centerPoint.length === 2
@@ -901,9 +904,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function drawLegend(def) {
-        const x = canvas.width - PADDING - 200;
+        const x = canvas.clientWidth - PADDING - 200;
         const y = PADDING + 25;
-        ctx.font = '14px sans-serif';
+        ctx.font = '14px Inter, sans-serif';
         ctx.textAlign = 'left';
         ctx.strokeStyle = ORIGINAL_COLOR;
         ctx.lineWidth = 3;
@@ -914,7 +917,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.lineTo(x + 40, y);
         ctx.stroke();
         ctx.shadowBlur = 0;
-        ctx.fillStyle = '#e0e0e0';
+        ctx.fillStyle = '#f0f0f5';
         const fname = getFunctionDisplayName(def);
         ctx.fillText(fname, x + 50, y + 5);
         ctx.strokeStyle = TAYLOR_COLOR;
@@ -927,7 +930,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.shadowBlur = 0;
-        ctx.fillStyle = '#b8b8d1';
+        ctx.fillStyle = '#9ea3b0';
         ctx.fillText(`Taylor (n=${Math.round(currentTerms)})`, x + 50, y + 35);
     }
 
@@ -937,7 +940,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const terms = Math.round(currentTerms);
         const signature = getFunctionSignature(funcDef);
         const dimensions = funcDef.dimensions || 1;
+        
+        // Clear with identity transform to ensure full clear
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+
         const xMin = -2 * Math.PI;
         const xMax = 2 * Math.PI;
         const actualEvaluator = (x) => safeEvaluate(funcDef, buildPointForX(x, centerPoint));
@@ -1130,10 +1139,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     invalidateFormula();
                 }
                 termsSlider.value = rounded;
+                updateSliderFill(termsSlider);
                 termsValue.textContent = rounded;
             } else {
                 isPlaying = false;
-                playButton.textContent = '▶ Abspielen';
+                playButton.innerHTML = PLAY_HTML;
             }
         }
 
@@ -1154,9 +1164,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function resizeCanvas() {
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
+        const parent = canvas.parentElement;
+        const rect = parent.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        
+        // Scale context to ensure correct drawing operations
+        ctx.scale(dpr, dpr);
+        
+        // CSS size
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+        
         draw();
     }
 
@@ -1170,7 +1191,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         customError.classList.remove('show');
         isPlaying = false;
-        playButton.textContent = '▶ Abspielen';
+        playButton.innerHTML = PLAY_HTML;
         viewState.isDragging = false;
         updateDimensionUI(dimensions);
         clearDerivativeCaches();
@@ -1209,7 +1230,19 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    function updateSliderFill(input) {
+        const min = parseFloat(input.min) || 0;
+        const max = parseFloat(input.max) || 100;
+        const val = parseFloat(input.value) || 0;
+        const percentage = ((val - min) / (max - min)) * 100;
+        const fill = input.parentElement.querySelector('.slider-track-fill');
+        if (fill) {
+            fill.style.width = `${percentage}%`;
+        }
+    }
+
     termsSlider.addEventListener('input', (e) => {
+        updateSliderFill(e.target);
         const max = parseInt(termsSlider.max, 10);
         let value = parseInt(e.target.value, 10);
         if (value > max) value = max;
@@ -1217,12 +1250,13 @@ document.addEventListener('DOMContentLoaded', function() {
         currentTerms = targetTerms = value;
         termsValue.textContent = value;
         isPlaying = false;
-        playButton.textContent = '▶ Abspielen';
+        playButton.innerHTML = PLAY_HTML;
         drawProgress = 0;
         invalidateFormula();
     });
 
     centerSlider.addEventListener('input', (e) => {
+        updateSliderFill(e.target);
         centerValue.textContent = parseFloat(e.target.value).toFixed(1);
         clearDerivativeCaches();
         drawProgress = 0;
@@ -1230,6 +1264,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     centerSliderY.addEventListener('input', (e) => {
+        updateSliderFill(e.target);
         centerValueY.textContent = parseFloat(e.target.value).toFixed(1);
         if (getCurrentDimensions() === 1) return;
         clearDerivativeCaches();
@@ -1238,6 +1273,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     centerSliderZ.addEventListener('input', (e) => {
+        updateSliderFill(e.target);
         centerValueZ.textContent = parseFloat(e.target.value).toFixed(1);
         if (getCurrentDimensions() < 3) return;
         clearDerivativeCaches();
@@ -1248,14 +1284,14 @@ document.addEventListener('DOMContentLoaded', function() {
     playButton.addEventListener('click', () => {
         if (isPlaying) {
             isPlaying = false;
-            playButton.textContent = '▶ Abspielen';
+            playButton.innerHTML = PLAY_HTML;
             return;
         }
         currentTerms = 1;
         targetTerms = parseInt(termsSlider.value, 10);
         drawProgress = 0;
         isPlaying = true;
-        playButton.textContent = '⏸ Pause';
+        playButton.innerHTML = PAUSE_HTML;
         termsSlider.value = 1;
         termsValue.textContent = 1;
         lastFrameTime = null;
@@ -1264,16 +1300,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
     resetButton.addEventListener('click', () => {
         isPlaying = false;
-        playButton.textContent = '▶ Abspielen';
+        playButton.innerHTML = PLAY_HTML;
         termsSlider.value = 1;
+        updateSliderFill(termsSlider);
         currentTerms = 1;
         targetTerms = 1;
         termsValue.textContent = 1;
         centerSlider.value = 0;
+        updateSliderFill(centerSlider);
         centerValue.textContent = '0.0';
         centerSliderY.value = 0;
+        updateSliderFill(centerSliderY);
         centerValueY.textContent = '0.0';
         centerSliderZ.value = 0;
+        updateSliderFill(centerSliderZ);
         centerValueZ.textContent = '0.0';
         functionSelect.value = 'sin';
         handleFunctionChange();
@@ -1320,5 +1360,6 @@ document.addEventListener('DOMContentLoaded', function() {
     resizeCanvas();
     updateFormula();
     needsFormulaUpdate = false;
+    [termsSlider, centerSlider, centerSliderY, centerSliderZ].forEach(updateSliderFill);
     requestAnimationFrame(frameLoop);
 });
